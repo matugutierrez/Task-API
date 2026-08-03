@@ -14,13 +14,13 @@ on:
 jobs: 
  test: 
   runs-on: ubuntu-latest
-  stats: 
+  steps: 
 
   - name: checkout code 
     uses: actions/checkout@v4
 
   - name: setup-node
-    run: actions/setup-node@v3 
+    uses: actions/setup-node@v3 
     with:
       node-version: '20' 
       cache: 'npm' 
@@ -41,13 +41,13 @@ jobs:
   needs: test 
 
   runs-on: ubuntu-latest
-  stats: 
+  steps:  
 
   - name: checkout code 
     uses: actions/checkout@v4
 
   - name: setup-node
-    run: actions/setup-node@v3 
+    uses: actions/setup-node@v3 
     with:
       node-version: '20' 
       cache: 'npm' 
@@ -67,7 +67,7 @@ jobs:
  build-image:
   needs: build 
   runs-on: ubuntu-latest
-  stats: 
+  steps: 
   
   - name: checkout code 
     uses: actions/checkout@v4
