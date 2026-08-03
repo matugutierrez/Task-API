@@ -1,0 +1,117 @@
+name: CICD
+
+
+
+on:
+  push:
+   branches: 
+     - main 
+
+  pull_request:
+   branches: 
+     - main
+
+jobs: 
+ test: 
+  runs-on: ubuntu-latest
+  stats: 
+
+  - name: checkout code 
+    uses: actions/checkout@v4
+
+  - name: setup-node
+    run: actions/setup-node@v3 
+    with:
+      node-version: '20' 
+      cache: 'npm' 
+
+  - name: install dependencies 
+    run: npm ci
+    
+  - name: typecheck 
+    run: npm run typecheck
+
+  - name: lint
+    run: npm run lint
+
+  - name: Run tests 
+    run: npm test
+
+ build: 
+  needs: test 
+
+  runs-on: ubuntu-latest
+  stats: 
+
+  - name: checkout code 
+    uses: actions/checkout@v4
+
+  - name: setup-node
+    run: actions/setup-node@v3 
+    with:
+      node-version: '20' 
+      cache: 'npm' 
+
+  - name: install dependencies 
+    run: npm ci
+    
+  - name: build
+    run: npm run build
+
+  - name: typecheck 
+    run: npm run typecheck
+
+  - name: lint
+    run: npm run lint
+  
+ build-image:
+  needs: build 
+  runs-on: ubuntu-latest
+  stats: 
+  
+  - name: checkout code 
+    uses: actions/checkout@v4
+    
+  - name: Configure AWS credentials
+    uses: aws-actions/configure-aws-credentials@v4
+    with:
+      aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      aws-region: sa-east-1
+
+  - name: Login to Amazon ECR
+    id: ecr-login
+    uses: aws-actions/amazon-ecr-login@v2
+
+  - name: Docker Build 
+    run: |
+      docker build -t task-api .
+      docker tag task-api:latest ${{ steps.ecr-login.outputs.registry }}/task-api:latest
+      docker tag task-api:latest ${{ steps.ecr-login.outputs.registry }}/task-api:${{ github.sha }}
+      docker push ${{ steps.ecr-login.outputs.registry }}/task-api:latest
+      docker push ${{ steps.ecr-login.outputs.registry }}/task-api:${{ github.sha }}
+
+  - name: Scan image for vulnerabilities
+    uses: aquasecurity/trivy-action@master
+    with:
+      image-ref: task-api:latest
+      severity: CRITICAL,HIGH
+      exit-code: 1    
+
+ deploy:
+  needs: build-image 
+  runs-on: ubuntu-latest 
+  if: github.event_name == 'push'
+  steps:
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          aws ecr get-login-password --region sa-east-1 | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.sa-east-1.amazonaws.com
+          docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.sa-east-1.amazonaws.com/task-api:latest
+          docker stop task-api || true
+          docker rm task-api || true
+          docker run -d --name task-api --env-file .env -p 3000:3000 --restart unless-stopped ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.sa-east-1.amazonaws.com/task-api:latest
